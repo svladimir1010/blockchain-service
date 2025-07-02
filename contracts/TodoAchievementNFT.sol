@@ -1,68 +1,94 @@
 // SPDX-License-Identifier: MIT
-//— лицензия, разрешающая свободное использование кода
+pragma solidity ^0.8.28;
 
-pragma solidity ^0.8.28; // Используемая версия компилятора Solidity
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 
-// Импорты из OpenZeppelin — безопасные, проверенные временем контракты
-import "@openzeppelin/contracts/token/ERC721/ERC721.sol"; // Основной функционал NFT
-import "@openzeppelin/contracts/access/Ownable.sol"; // Управление правами (только владелец может выполнять критические действия)
+contract TodoAchievementNFT is ERC721, ERC721URIStorage, Ownable {
+    uint256 private _tokenIdCounter;
 
-//import "@openzeppelin/contracts/utils/Counters.sol"; // Счётчик ID для NFT
-import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol"; // Хранение URI метаданных для каждого NFT
+    mapping(address => uint256) public completedTasks;
+    mapping(address => uint256) public claimedTasksMilestone;
+    uint256 public constant TASKS_PER_NFT = 10;
 
-// Контракт NFT, который можно использовать для награждения пользователей (например, за выполнение задач)
-contract TodoAchievementNFT is ERC721URIStorage, Ownable {
-    //    using Counters for Counters.Counter;
-    //    Counters.Counter private _tokenIdCounter; // Ведёт учёт количества созданных NFT
-
-    uint256 private _tokenIdCounter; // Просто число, без OpenZeppelin Counters
-
-    // Событие, которое поможет фронтенду узнавать, когда создан новый NFT
     event NftMinted(address indexed recipient, uint256 tokenId, string tokenURI);
 
-    // Конструктор — вызывается один раз при создании контракта
     constructor()
-    ERC721("TodoAchievementNFT", "TDONFT") // Устанавливаем имя и символ токена
-    Ownable(msg.sender) // Устанавливаем того, кто задеплоил контракт, как владельца
+    ERC721("TodoAchievementNFT", "TDONFT")
+    Ownable(msg.sender)
     {}
 
-    /**
-     * Создаёт (mint) новый NFT и отправляет его на указанный адрес.
-     * Может быть вызвана только владельцем контракта (например, вашим backend-сервером).
-     *
-     * @param to — адрес получателя NFT
-     * @param tokenURI — ссылка на JSON-файл с метаданными (например, IPFS-ссылка на изображение и описание)
-     * @return tokenId — ID нового NFT
-     */
+    // ИСПРАВЛЕНИЕ: Явно переопределяем supportsInterface
+    // ERC721URIStorage уже переопределяет supportsInterface из ERC721,
+    // но если вы наследуете от обоих напрямую, вам нужно указать порядок наследования.
+    // Здесь мы используем реализацию ERC721URIStorage, которая включает в себя ERC721.
+    function supportsInterface(bytes4 interfaceId)
+    public
+    view
+    override(ERC721, ERC721URIStorage) // Указываем, от каких базовых контрактов переопределяем
+    returns (bool)
+    {
+        return super.supportsInterface(interfaceId); // Вызываем реализацию из базовых классов
+    }
+
+    // ИСПРАВЛЕНИЕ: Явно переопределяем tokenURI
+    function tokenURI(uint256 tokenId)
+    public
+    view
+    override(ERC721, ERC721URIStorage) // Указываем, от каких базовых контрактов переопределяем
+    returns (string memory)
+    {
+        return super.tokenURI(tokenId); // Вызываем реализацию из базовых классов
+    }
+
+
+    function markTaskCompleted(address user) public onlyOwner {
+        completedTasks[user]++;
+    }
+
+
+    // ИЗМЕНЕНИЕ ЗДЕСЬ: Добавляем параметр _recipient и делаем функцию onlyOwner
+    function claimAchievementNFT(address _recipient) public onlyOwner {
+        // Все проверки прогресса теперь будут для _recipient
+        uint256 currentCompleted = completedTasks[_recipient];
+        uint256 lastClaimedMilestone = claimedTasksMilestone[_recipient];
+
+        uint256 newClaimableBlocks = (currentCompleted / TASKS_PER_NFT) - (lastClaimedMilestone / TASKS_PER_NFT);
+
+        require(newClaimableBlocks > 0, "Not enough new tasks completed for NFT claim.");
+
+        uint256 newMilestone = (currentCompleted / TASKS_PER_NFT) * TASKS_PER_NFT;
+
+        require(newMilestone > lastClaimedMilestone, "No new claimable milestones reached.");
+
+        for (uint256 i = 0; i < newClaimableBlocks; i++) {
+            _tokenIdCounter++;
+            uint256 newItemId = _tokenIdCounter;
+            _safeMint(_recipient, newItemId); // Минтим NFT на _recipient
+            emit NftMinted(_recipient, newItemId, "No URI set in claimAchievementNFT"); // Placeholder URI
+        }
+
+        claimedTasksMilestone[_recipient] = newMilestone; // Обновляем порог для _recipient
+    }
+
     function mintNft(address to, string memory tokenURI)
     public
-        //Временно убрать onlyOwner для целей этого тестового задания.
     onlyOwner
     returns (uint256)
     {
-        //        _tokenIdCounter.increment(); // Увеличиваем счётчик
-        //        uint256 newItemId = _tokenIdCounter.current(); // Получаем новый ID
-
         _tokenIdCounter++;
-        // Увеличиваем счётчик вручную
         uint256 newItemId = _tokenIdCounter;
 
         _mint(to, newItemId);
-        // Создаём NFT
         _setTokenURI(newItemId, tokenURI);
-        // Привязываем метаданные
 
         emit NftMinted(to, newItemId, tokenURI);
-        // Сообщаем о выпуске нового NFT
 
         return newItemId;
     }
 
-    // Получаем общее количество выпущенных NFT
     function getTotalMinted() public view returns (uint256) {
-        //        return _tokenIdCounter.current();
         return _tokenIdCounter;
     }
 }
-
-
